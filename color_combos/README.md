@@ -5,7 +5,7 @@ Color combination charts for quickly swatching riso ink combinations. 2-color on
 <table>
   <tr align="center">
     <td>
-      <img src="https://github.com/erinachavez/print_utils/blob/main/color_combos/black_brightred.png" />
+      <img src="https://github.com/erinachavez/print_utils/blob/main/color_combos/brightred_green.png" />
       bright red + green
     </td>
     <td>
