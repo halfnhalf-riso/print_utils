@@ -157,6 +157,7 @@ class Riso extends p5.Graphics {
   }
 
   image(img, x, y, w, h) {
+    let alphaValue = alpha(this.drawingContext.fillStyle)/255;
     let newImage = createImage(img.width, img.height);
     img.loadPixels();
     newImage.loadPixels();
@@ -164,7 +165,12 @@ class Riso extends p5.Graphics {
       newImage.pixels[i]   = this.channelColor[0];
       newImage.pixels[i+1] = this.channelColor[1];
       newImage.pixels[i+2] = this.channelColor[2];
-      newImage.pixels[i+3] = 255 - (img.pixels[i] + img.pixels[i+1] + img.pixels[i+2])/3;
+
+      if (img.pixels[i+3] < 255) {
+        newImage.pixels[i+3] = img.pixels[i+3] * alphaValue;
+      } else {
+        newImage.pixels[i+3] = (255 - (img.pixels[i] + img.pixels[i+1] + img.pixels[i+2])/3) * alphaValue;
+      }
     }
     newImage.updatePixels();
     this._image(newImage, x, y, w, h);
@@ -236,11 +242,16 @@ function extractRGBChannel(img, c) {
 }
 
 function extractCMYKChannel(img, c) {
-  if (c == "c" || c == "cyan") c = 0;
-  if (c == "m" || c == "magenta") c = 1;
-  if (c == "y" || c == "yellow") c = 2;
-  if (c == "k" || c == "black") c = 3;
-
+  let desiredCMYKChannels = [];
+  if(typeof c == "number" && c < 4) {
+    desiredCMYKChannels.push(c);
+  } else {
+    c = c.toLowerCase();
+    if (c == "cyan" || c.includes("c")) desiredCMYKChannels.push(0);
+    if (c == "magenta" || c.includes("m")) desiredCMYKChannels.push(1);
+    if (c == "yellow" || c.includes("y")) desiredCMYKChannels.push(2);
+    if (c == "black" || c.includes("k")) desiredCMYKChannels.push(3);
+  }
   let channel = createImage(img.width, img.height);
   img.loadPixels();
   channel.loadPixels();
@@ -248,7 +259,12 @@ function extractCMYKChannel(img, c) {
     let r = img.pixels[i];
     let g = img.pixels[i+1];
     let b = img.pixels[i+2];
-    let val = rgb2cmyk(r, g, b)[c];
+    let cmyk = rgb2cmyk(r, g, b);
+    let val = 0;
+    desiredCMYKChannels.forEach(function(channelIndex){
+      val += cmyk[channelIndex];
+    });
+    val /= desiredCMYKChannels.length;
     channel.pixels[i]   = val;
     channel.pixels[i+1] = val;
     channel.pixels[i+2] = val;
@@ -257,6 +273,81 @@ function extractCMYKChannel(img, c) {
   channel.updatePixels();
   return channel;
 }
+
+function halftoneImage(img, shape, frequency, angle, intensity) {
+  if (shape === undefined) shape = "circle";
+  if (frequency === undefined) frequency = 10;
+  if (angle === undefined) angle = 45;
+  if (intensity === undefined) intensity = 127;
+
+  const halftonePatterns = {
+    line(c, x, y, g, d) {
+      c.rect(x, y, g, g * d);
+    },
+    square(c, x, y, g, d) {
+      c.rect(x, y, g * d, g * d);
+    },
+    circle(c, x, y, g, d) {
+      c.ellipse(x, y, d * g, d * g);
+    },
+    ellipse(c, x, y, g, d) {
+      c.ellipse(x, y, g * d * 0.7, g*d);
+    },
+    cross(c, x, y, g, d) {
+      c.rect(x, y, g, g*d);
+      c.rect(x, y, g * d, g);
+    },
+  }
+
+  patternFunction = typeof shape === "function" ? shape : halftonePatterns[shape];
+
+  const w = img.width;
+  const h = img.height;
+
+  const rotatedCanvas = createGraphics(img.width*2, img.height*2);
+  rotatedCanvas.background(255);
+  rotatedCanvas.imageMode(CENTER);
+  rotatedCanvas.push();
+  rotatedCanvas.translate(img.width, img.height);
+  rotatedCanvas.rotate(-angle);
+  rotatedCanvas.image(img, 0, 0);
+  rotatedCanvas.pop();
+  rotatedCanvas.loadPixels();
+
+  const out = createGraphics(w*2, h*2);
+  out.background(255);
+  out.ellipseMode(CORNER);
+  out.rectMode(CENTER);
+  out.fill(0);
+  out.noStroke();
+
+  let gridsize = frequency;
+
+  for (let x=0; x < w*2; x+=gridsize) {
+    for (let y=0; y < h*2; y+=gridsize) {
+      const avg = rotatedCanvas.pixels[(x + y*w*2)* 4];
+
+      if (avg < 255) {
+        const darkness = (255 - avg) / 255;
+        patternFunction(out, x, y, gridsize, darkness);
+      }
+    }
+  }
+  rotatedCanvas.background(255);
+  rotatedCanvas.push();
+  rotatedCanvas.translate(w, h);
+  rotatedCanvas.rotate(angle);
+  rotatedCanvas.image(out, 0, 0);
+  rotatedCanvas.pop();
+
+  const result = rotatedCanvas.get(w/2, h/2, w, h);
+  if (intensity === false) {
+    return result;
+  } else {
+    return ditherImage(result, "none", intensity);
+  }
+}
+
 
 function ditherImage(img, type, threshold) {
   // source adapted from: https://github.com/meemoo/meemooapp/blob/44236a29574812026407c0288ab15390e88b556a/src/nodes/image-monochrome-worker.js
